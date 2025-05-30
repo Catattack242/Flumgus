@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flumgus Snail Launcher - Infinite Ground Edition</title>
+<style>
+  body, html {
+    margin:0; padding:0; overflow:hidden;
+    background: linear-gradient(to top, #87ceeb 0%, #ccefff 100%);
+    font-family: monospace;
+    user-select:none;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  #gameContainer {
+    flex: 1;
+    position: relative;
+  }
+  #gameCanvas {
+    background: linear-gradient(to bottom, #87ceeb 60%, #6b8e23 60%);
+    display: block;
+    margin: 0 auto;
+    border: 2px solid #444;
+    width: 100%;
+    height: 100%;
+    max-height: 400px;
+  }
+  #ui {
+    background: #eee;
+    padding: 8px;
+    text-align: center;
+    user-select:none;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  #stats {
+    flex-basis: 100%;
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+  button {
+    font-family: monospace;
+    margin: 0 6px;
+    padding: 8px 14px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  .upgrade-btn {
+    min-width: 160px;
+  }
+</style>
+</head>
+<body>
+
+<div id="gameContainer">
+  <canvas id="gameCanvas" width="800" height="400"></canvas>
+</div>
+
+<div id="ui">
+  <div id="stats">
+    distance: <span id="distance">0</span> Peter Griffins. &nbsp;&nbsp;|&nbsp;&nbsp; Pounds of Lettuce: <span id="money">0</span>
+  </div>
+  <button id="launchBtn">Launch 🐌</button>
+  <button class="upgrade-btn" id="powerUpBtn">Catapult Power (Cost: <span id="powerCost">10</span>)</button>
+  <button class="upgrade-btn" id="gravityUpBtn">Reduce Gravity (Cost: <span id="gravityCost">15</span>)</button>
+  <button class="upgrade-btn" id="airControlUpBtn">Air Control (Cost: <span id="airControlCost">25</span>)</button>
+  <button class="upgrade-btn" id="magnetUpBtn">Coin Magnet (Cost: <span id="magnetCost">30</span>)</button>
+  <button class="upgrade-btn" id="snailUpBtn">Snail (Cost: <span id="snailCost">10000</span>)</button>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const distanceSpan = document.getElementById('distance');
+  const moneySpan = document.getElementById('money');
+  const launchBtn = document.getElementById('launchBtn');
+
+  const powerUpBtn = document.getElementById('powerUpBtn');
+  const gravityUpBtn = document.getElementById('gravityUpBtn');
+  const airControlUpBtn = document.getElementById('airControlUpBtn');
+  const magnetUpBtn = document.getElementById('magnetUpBtn');
+  const snailUpBtn = document.getElementById('snailUpBtn');
+
+  let money = 0;
+  let distance = 0;
+
+  let catapultPower = 15;
+  let catapultPowerCost = 10;
+
+  let gravity = 0.8;
+  let gravityCost = 15;
+
+  let airControl = 0;
+  let airControlCost = 25;
+
+  let coinMagnet = 0;
+  let magnetCost = 30;
+
+  let snailUpgradeBought = false;
+  const snailCost = 10000;
+
+  let snail = {
+    x: 100,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    size: 40,
+    flying: false,
+  };
+
+  let cameraX = 0;
+  let cameraY = 0;
+
+  let keys = {};
+
+  let landed = false;
+  let landTime = 0;
+  let waitingToReset = false;
+
+  function groundHeightAt(x) {
+    return 340 + Math.sin(x * 0.01) * 20 + Math.sin(x * 0.03) * 5;
+  }
+
+  function resetSnail() {
+    snail.x = 100;
+    snail.y = groundHeightAt(snail.x) - snail.size;
+    snail.vx = 0;
+    snail.vy = 0;
+    snail.flying = false;
+    landed = false;
+    waitingToReset = false;
+    distance = 0;
+    updateDistance();
+    cameraX = snail.x - canvas.width / 3;
+    cameraY = snail.y - canvas.height / 2;
+  }
+
+  resetSnail();
+
+  launchBtn.onclick = () => {
+    if (snail.flying) return;
+    snail.vx = catapultPower + (Math.random() * 5 - 2.5);
+    snail.vy = - (catapultPower * 1.3) + (Math.random() * 5 - 2.5);
+    snail.flying = true;
+    landed = false;
+    waitingToReset = false;
+    distance = 0;
+    updateDistance();
+  };
+
+  function update(delta) {
+    if (!snail.flying) return;
+
+    if (airControl > 0) {
+      if (keys['ArrowLeft']) snail.vx -= airControl * 0.3;
+      if (keys['ArrowRight']) snail.vx += airControl * 0.3;
+    }
+
+    snail.vx += (Math.random() * 0.2 - 0.1);
+    snail.vy += gravity + (Math.random() * 0.2 - 0.1);
+
+    snail.x += snail.vx;
+    snail.y += snail.vy;
+
+    const currentGroundY = groundHeightAt(snail.x);
+    if (snail.y + snail.size > currentGroundY) {
+      snail.y = currentGroundY - snail.size;
+
+      // add friction to slow sliding
+      snail.vx *= 0.6;
+
+      snail.vy = -snail.vy * 0.5;
+
+      if (!landed && Math.abs(snail.vy) < 1) {
+        landed = true;
+        landTime = performance.now();
+
+        const reward = Math.floor(distance * (1 + coinMagnet * 0.5));
+        money += reward;
+        updateMoney();
+      }
+    }
+
+    // after landing, wait till snail stops moving (vx near zero), then wait 1 sec before reset
+    if (landed && !waitingToReset) {
+      if (Math.abs(snail.vx) < 0.1) {
+        waitingToReset = true;
+        landTime = performance.now();
+      }
+    }
+
+    if (waitingToReset) {
+      if (performance.now() - landTime > 1000) {
+        resetSnail();
+      }
+    }
+
+    distance = (snail.x - 100) / snail.size;
+    if (distance < 0) distance = 0;
+
+    updateDistance();
+
+    // camera always follows snail smoothly (including after landing)
+    const targetCamX = snail.x - canvas.width / 3;
+    const targetCamY = snail.y - canvas.height / 2;
+    cameraX += (targetCamX - cameraX) * 0.1;
+    cameraY += (targetCamY - cameraY) * 0.1;
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // sky
+    ctx.fillStyle = '#87ceeb';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // ground
+    ctx.fillStyle = '#6b8e23';
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height);
+    const startSegment = Math.floor(cameraX / 50) - 1;
+    const endSegment = startSegment + Math.ceil(canvas.width / 50) + 3;
+    for (let seg = startSegment; seg <= endSegment; seg++) {
+      const segX = seg * 50 - cameraX;
+      const segY = groundHeightAt(seg * 50) - cameraY;
+      ctx.lineTo(segX, segY);
+    }
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // snail emoji crisp by setting font size and drawing normally (no stretching)
+    ctx.font = `${snail.size}px serif`;
+    ctx.textBaseline = 'top';
+    const snailScreenX = snail.x - cameraX;
+    const snailScreenY = snail.y - cameraY;
+    ctx.fillText('🐌', snailScreenX, snailScreenY);
+  }
+
+  function gameLoop(t) {
+    if (!lastTime) lastTime = t;
+    const delta = (t - lastTime) / 16.666;
+    lastTime = t;
+
+    update(delta);
+    draw();
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  function updateDistance() {
+    distanceSpan.textContent = distance.toFixed(2);
+  }
+
+  function updateMoney() {
+    moneySpan.textContent = money;
+  }
+
+  // upgrades
+  powerUpBtn.onclick = () => {
+    if (money >= catapultPowerCost) {
+      money -= catapultPowerCost;
+      catapultPower += 5;
+      catapultPowerCost = Math.floor(catapultPowerCost * 1.4);
+      powerUpBtn.querySelector('span').textContent = catapultPowerCost;
+      updateMoney();
+    }
+  };
+
+  gravityUpBtn.onclick = () => {
+    if (money >= gravityCost && gravity > 0.2) {
+      money -= gravityCost;
+      gravity -= 0.1;
+      gravityCost = Math.floor(gravityCost * 1.4);
+      gravityUpBtn.querySelector('span').textContent = gravityCost;
+      updateMoney();
+    }
+  };
+
+  airControlUpBtn.onclick = () => {
+    if (money >= airControlCost) {
+      money -= airControlCost;
+      airControl += 0.3;
+      airControlCost = Math.floor(airControlCost * 1.4);
+      airControlUpBtn.querySelector('span').textContent = airControlCost;
+      updateMoney();
+    }
+  };
+
+  magnetUpBtn.onclick = () => {
+    if (money >= magnetCost) {
+      money -= magnetCost;
+      coinMagnet += 1;
+      magnetCost = Math.floor(magnetCost * 1.4);
+      magnetUpBtn.querySelector('span').textContent = magnetCost;
+      updateMoney();
+    }
+  };
+
+  snailUpBtn.onclick = () => {
+    if (!snailUpgradeBought && money >= snailCost) {
+      money -= snailCost;
+      snailUpgradeBought = true;
+      snailUpBtn.textContent = 'Snail (Owned)';
+      updateMoney();
+    }
+  };
+
+  // keyboard input
+  window.addEventListener('keydown', (e) => {
+    keys[e.key] = true;
+  });
+  window.addEventListener('keyup', (e) => {
+    keys[e.key] = false;
+  });
+
+  let lastTime;
+  requestAnimationFrame(gameLoop);
+
+})();
+</script>
+
+</body>
+</html>
